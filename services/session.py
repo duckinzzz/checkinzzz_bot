@@ -266,6 +266,51 @@ class CheckinSession:
         await self._sleep(delay)
         await self.close()
 
+    async def flush_now(self) -> None:
+        async with self._lock:
+            active = self._active
+            if active is None:
+                return
+            self._cancel_flush()
+            await self._flush(active)
+
+    async def handle_checkin(self, tg_id: int, token: str) -> CheckinResult:
+        async with self._lock:
+            active = self._active
+            if active is None or active.token != token or self._clock() >= active.end_at:
+                return CheckinResult.NO_SESSION
+
+            name = self._directory.name_of(tg_id)
+            if name is None:
+                return CheckinResult.NOT_IN_GROUP
+
+            row = active.rows.get(normalize_name(name))
+            if row is None:
+                logger.warning(
+                    "Студент %s (id %s) не найден в листе %r", name, tg_id, active.worksheet
+                )
+                await self._report(
+                    f"⚠️ {name} (id {tg_id}) жмёт «Отметиться», но его нет в листе "
+                    f"«{active.worksheet}». Отметка не поставлена."
+                )
+                return CheckinResult.NOT_IN_SHEET
+
+            already = row in active.sheet_marked_rows or row in set(active.marked_rows.values())
+            if already:
+                return CheckinResult.ALREADY
+
+            active.marked_rows[tg_id] = row
+            active.pending.append((row, active.column))
+            self._store.save(active.to_stored())
+
+            if len(active.pending) >= self._flush_size:
+                self._cancel_flush()
+                await self._flush(active)
+            else:
+                self._schedule_flush()
+
+            return CheckinResult.MARKED
+
     async def _announce_closed(self, active: _Active) -> None:
         try:
             await self._bot.edit_message_text(
