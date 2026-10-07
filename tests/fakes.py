@@ -110,7 +110,9 @@ class FakeBot:
         return SimpleNamespace(message_id=100 + len(self.sent))
 
     async def edit_message_text(self, text: str, chat_id: int, message_id: int, **kwargs: object):
-        self.edited.append({"chat_id": chat_id, "message_id": message_id, "text": text})
+        self.edited.append(
+            {"chat_id": chat_id, "message_id": message_id, "text": text, "kwargs": kwargs}
+        )
         return SimpleNamespace(message_id=message_id)
 
 

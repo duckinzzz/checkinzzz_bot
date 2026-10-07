@@ -119,6 +119,67 @@ async def test_close_sends_summary_to_admins(tmp_path: Path):
     assert "Не отметились" in reports[0]
 
 
+async def test_close_removes_keyboard(tmp_path: Path):
+    session, bot, _, _, _ = await _started(tmp_path)
+    await session.close()
+    markup = bot.edited[-1]["kwargs"]["reply_markup"]
+    assert markup is not None
+    assert markup.inline_keyboard == []
+
+
+async def test_close_with_failed_flush_keeps_marks_and_names_students(tmp_path: Path):
+    reports: list[str] = []
+
+    async def report(text: str) -> None:
+        reports.append(text)
+
+    session, _, sheet, store, token = await _started(tmp_path)
+    session._report_hook = report
+    await session.handle_checkin(IVAN, token)
+
+    sheet.fail_next_writes = 3  # три попытки call_with_retry израсходованы
+    await session.close()
+
+    assert sheet.written == []
+    stored = store.load()
+    assert stored is not None, "буфер с недописанными отметками не должен теряться"
+    assert stored.pending == ((2, 2),)
+
+    text = "\n".join(reports)
+    assert "Иванов Иван" in text, "админу нужен перечень не записавшихся"
+    assert "Отметились 0 из 2" in text, "итог не должен засчитывать незаписанную отметку"
+
+
+async def test_next_start_retries_leftover_marks(tmp_path: Path):
+    session, _, sheet, store, token = await _started(tmp_path)
+    await session.handle_checkin(IVAN, token)
+
+    sheet.fail_next_writes = 3
+    await session.close()
+    assert sheet.written == []
+
+    await session.start("Матан")
+    assert sheet.written == [(2, 2)], "хвост прошлой пары должен дописаться"
+
+    await session.close()
+
+
+async def test_restarted_bot_drains_leftover_from_state(tmp_path: Path):
+    session, _, sheet, store, token = await _started(tmp_path)
+    await session.handle_checkin(IVAN, token)
+
+    sheet.fail_next_writes = 3
+    await session.close()
+    assert sheet.written == []
+
+    # Новый процесс: тот же state.json, но пустая память — хвост читается из файла.
+    revived, _, _, _, _ = await _started(tmp_path, sheet=sheet)
+    await revived.start("Матан")
+
+    assert sheet.written == [(2, 2)]
+    await revived.close()
+
+
 async def test_state_updated_on_each_mark(tmp_path: Path):
     session, _, _, store, token = await _started(tmp_path)
     await session.handle_checkin(IVAN, token)

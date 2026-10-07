@@ -8,6 +8,7 @@ from typing import Awaitable, Callable, Sequence
 from uuid import uuid4
 
 from aiogram import Bot
+from aiogram.types import InlineKeyboardMarkup
 
 from core.log import logger
 from keyboards import checkin_kb
@@ -46,6 +47,16 @@ def _closed_message(active: "_Active") -> str:
     total = len(active.rows)
     marked = len(set(active.marked_rows.values()) | active.sheet_marked_rows)
     return f"{active.subject} — пара закрыта, отметились {marked} из {total}"
+
+
+@dataclass
+class _Leftover:
+    """Отметки, которые не удалось записать при закрытии пары."""
+
+    worksheet: str
+    subject: str
+    day: date
+    marks: list[tuple[int, int]]
 
 
 @dataclass
@@ -114,6 +125,7 @@ class CheckinSession:
         self._active: _Active | None = None
         self._close_task: asyncio.Task[None] | None = None
         self._flush_task: asyncio.Task[None] | None = None
+        self._orphans: list[_Leftover] = []
         self._lock = asyncio.Lock()
 
     @property
@@ -148,6 +160,8 @@ class CheckinSession:
             previous = self._detach_active()
             if previous is not None:
                 await self._finish(previous)
+            else:
+                await self._drain_orphans()
 
             try:
                 sheet = self._open_sheet(worksheet)
@@ -215,10 +229,137 @@ class CheckinSession:
 
     async def _finish(self, active: _Active) -> None:
         """Дописать буфер, объявить итог в беседе, отчитаться админу. Вызывать под self._lock."""
-        await self._flush(active)
+        unwritten = await self._flush(active)
+        if unwritten:
+            self._orphans.append(
+                _Leftover(
+                    worksheet=active.worksheet,
+                    subject=active.subject,
+                    day=active.day,
+                    marks=list(unwritten),
+                )
+            )
         await self._announce_closed(active)
-        await self._report_summary(active)
-        self._store.clear()
+        await self._report_summary(active, unwritten)
+        if unwritten:
+            # Отметки не потеряны: они остаются в state.json до следующего старта пары
+            # или до рестарта бота, где их подхватят _drain_orphans/_finish.
+            self._store.save(active.to_stored())
+        else:
+            self._store.clear()
+
+    def _leftovers(self) -> list[_Leftover]:
+        """Хвосты, ждущие записи: сначала из памяти, иначе из state.json."""
+        if self._orphans:
+            return list(self._orphans)
+        stored = self._store.load()
+        if stored is None or not stored.pending:
+            return []
+        return [
+            _Leftover(
+                worksheet=stored.worksheet,
+                subject=stored.subject,
+                day=stored.day,
+                marks=list(stored.pending),
+            )
+        ]
+
+    async def _drain_orphans(self) -> None:
+        """Дописать отметки, не попавшие в таблицу при закрытии прошлых пар."""
+        leftovers = self._leftovers()
+        if not leftovers:
+            return
+        remaining = [item for item in leftovers if not await self._write_leftover(item)]
+        self._orphans = remaining
+
+    async def _write_leftover(self, leftover: _Leftover) -> bool:
+        try:
+            sheet = self._open_sheet(leftover.worksheet)
+            await call_with_retry(
+                sheet.write_marks,
+                list(leftover.marks),
+                retry_on=(SheetTransientError,),
+                base_delay=self._retry_base_delay,
+            )
+        except SheetError as exc:
+            logger.exception("Хвост отметок «%s» не записался", leftover.subject)
+            await self._report(
+                f"⚠️ Не записались отметки по «{leftover.subject}» "
+                f"({leftover.day:%d.%m.%Y}), {len(leftover.marks)} шт. Попробую ещё раз "
+                f"при следующем запуске пары."
+            )
+            return False
+        logger.info("Хвост отметок «%s» дописан (%d)", leftover.subject, len(leftover.marks))
+        return True
+
+    async def _report_summary(
+        self, active: _Active, unwritten: Sequence[tuple[int, int]] = ()
+    ) -> None:
+        unwritten_rows = {row for row, _ in unwritten}
+        marked_rows = (
+            set(active.marked_rows.values()) | active.sheet_marked_rows
+        ) - unwritten_rows
+        present = [
+            name
+            for name in self._directory.all_names()
+            if (row := active.rows.get(normalize_name(name))) is not None and row in marked_rows
+        ]
+        missing = [
+            name
+            for name in self._directory.all_names()
+            if (row := active.rows.get(normalize_name(name))) is not None
+            and row not in marked_rows
+            and row not in unwritten_rows
+        ]
+        lost = [
+            name
+            for name in self._directory.all_names()
+            if (row := active.rows.get(normalize_name(name))) is not None and row in unwritten_rows
+        ]
+        lines = [
+            f"📊 {active.subject} ({active.pair_number} пара), {active.day:%d.%m.%Y}",
+            f"Отметились {len(present)} из {len(present) + len(missing) + len(lost)}",
+        ]
+        lines += [f"• {name}" for name in present]
+        if missing:
+            lines.append("Не отметились:")
+            lines += [f"• {name}" for name in missing]
+        if lost:
+            lines.append("Нажали, но не записались в таблицу:")
+            lines += [f"• {name}" for name in lost]
+        await self._report("\n".join(lines))
+
+    async def _flush(self, active: _Active) -> list[tuple[int, int]]:
+        """Записать буфер. Возвращает отметки, которые записать не удалось."""
+        if not active.pending:
+            return []
+        batch = active.pending
+        active.pending = []
+        try:
+            await call_with_retry(
+                active.sheet.write_marks,
+                batch,
+                retry_on=(SheetTransientError,),
+                base_delay=self._retry_base_delay,
+            )
+        except SheetError as exc:
+            logger.exception("Не удалось записать отметки (%s)", active.subject)
+            active.pending = batch + active.pending
+            names = ", ".join(self._names_for(active, batch))
+            await self._report(
+                f"⚠️ Отметки по «{active.subject}» не записались: {exc}\n"
+                f"Не записаны ({len(batch)}): {names}"
+            )
+            return batch
+        return []
+
+    def _names_for(self, active: _Active, marks: Sequence[tuple[int, int]]) -> list[str]:
+        rows = {row for row, _ in marks}
+        return [
+            name
+            for name in self._directory.all_names()
+            if active.rows.get(normalize_name(name)) in rows
+        ]
 
     async def restore(self) -> None:
         stored = self._store.load()
@@ -317,6 +458,9 @@ class CheckinSession:
                 _closed_message(active),
                 chat_id=self._chat_id,
                 message_id=active.message_id,
+                # Пустая клавиатура обязательна: edit_message_text с reply_markup=None
+                # не шлёт поле вовсе, и Telegram оставляет кнопку живой.
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[]),
             )
         except Exception:
             logger.exception(
@@ -329,45 +473,6 @@ class CheckinSession:
             logger.info("Отчёт админам: %s", text)
             return
         await self._report_hook(text)
-
-    async def _report_summary(self, active: _Active) -> None:
-        marked_rows = set(active.marked_rows.values()) | active.sheet_marked_rows
-        present = [
-            name
-            for name in self._directory.all_names()
-            if (row := active.rows.get(normalize_name(name))) is not None and row in marked_rows
-        ]
-        missing = [
-            name
-            for name in self._directory.all_names()
-            if (row := active.rows.get(normalize_name(name))) is not None and row not in marked_rows
-        ]
-        lines = [
-            f"📊 {active.subject} ({active.pair_number} пара), {active.day:%d.%m.%Y}",
-            f"Отметились {len(present)} из {len(present) + len(missing)}",
-        ]
-        lines += [f"• {name}" for name in present]
-        if missing:
-            lines.append("Не отметились:")
-            lines += [f"• {name}" for name in missing]
-        await self._report("\n".join(lines))
-
-    async def _flush(self, active: _Active) -> None:
-        if not active.pending:
-            return
-        batch = active.pending
-        active.pending = []
-        try:
-            await call_with_retry(
-                active.sheet.write_marks,
-                batch,
-                retry_on=(SheetTransientError,),
-                base_delay=self._retry_base_delay,
-            )
-        except SheetError as exc:
-            logger.exception("Не удалось записать отметки (%s)", active.subject)
-            active.pending = batch + active.pending
-            await self._report(f"⚠️ Отметки по «{active.subject}» не записались: {exc}")
 
     def _cancel_flush(self) -> None:
         if self._flush_task is not None:
