@@ -6,6 +6,7 @@ from typing import Protocol, Sequence
 
 import gspread
 from gspread.exceptions import APIError, SpreadsheetNotFound, WorksheetNotFound
+from gspread.utils import rowcol_to_a1
 
 from utils.names import normalize_name
 
@@ -153,3 +154,14 @@ class GspreadSubjectSheet:
             for index, value in enumerate(values, start=1)
             if index > 1 and value.strip() == MARK
         }
+
+    def write_marks(self, marks: Sequence[tuple[int, int]]) -> None:
+        if not marks:
+            return
+        data = [
+            {"range": rowcol_to_a1(row, column), "values": [[MARK]]} for row, column in marks
+        ]
+        try:
+            self._ws.batch_update(data, value_input_option="USER_ENTERED")
+        except APIError as exc:
+            raise _translate(exc) from exc
