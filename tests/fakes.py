@@ -7,12 +7,20 @@ from services.sheets import MARK
 
 
 class FakeWorksheet:
-    """Минимальная подделка gspread.worksheet.Worksheet."""
+    """Минимальная подделка gspread.worksheet.Worksheet.
+
+    Повторяет поведение Google Sheets: при valueInputOption=USER_ENTERED значение,
+    начинающееся с «=», «+», «-» или «@», разбирается как формула и превращается в
+    ошибку. Именно на этом ломается запись отметки «+» — проверено на живой таблице.
+    """
+
+    FORMULA_PREFIXES = ("=", "+", "-", "@")
 
     def __init__(self, rows: list[list[str]] | None = None) -> None:
         self.rows: list[list[str]] = [list(row) for row in (rows or [])]
         self.updates: list[tuple[int, int, str]] = []
         self.batch_updates: list[list[dict]] = []
+        self.input_options: list[str] = []
 
     def _ensure_cell(self, row: int, column: int) -> None:
         while len(self.rows) < row:
@@ -30,22 +38,56 @@ class FakeWorksheet:
             values.append(row[column - 1] if len(row) >= column else "")
         return values
 
-    def update_cell(self, row: int, column: int, value: str) -> None:
+    def _store(
+        self, row: int, column: int, value: str, value_input_option: str | None
+    ) -> None:
+        # gspread по умолчанию пишет RAW, поэтому «не задано» — это тоже RAW.
+        option = value_input_option or "RAW"
+        self.input_options.append(option)
+        stored = value
+        if option != "RAW" and str(value)[:1] in self.FORMULA_PREFIXES:
+            stored = "#ERROR!"
         self._ensure_cell(row, column)
-        self.rows[row - 1][column - 1] = value
-        self.updates.append((row, column, value))
+        self.rows[row - 1][column - 1] = stored
+        self.updates.append((row, column, stored))
+
+    def update(
+        self, values: list[list[str]], range_name: str | None = None, **kwargs: object
+    ) -> None:
+        option = kwargs.get("value_input_option")
+        start = _parse_a1_cell(range_name or "A1")
+        for row_offset, record in enumerate(values):
+            for column_offset, value in enumerate(record):
+                self._store(
+                    start[0] + row_offset,
+                    start[1] + column_offset,
+                    value,
+                    option,  # type: ignore[arg-type]
+                )
+
+    def update_cell(self, row: int, column: int, value: str) -> None:
+        # gspread жёстко зашивает в update_cell USER_ENTERED.
+        self._store(row, column, value, "USER_ENTERED")
 
     def batch_update(self, data: list[dict], **kwargs: object) -> None:
+        option = kwargs.get("value_input_option")
         self.batch_updates.append(data)
         for item in data:
             target = item["range"]
             if isinstance(target, str):
-                column = ord(target[0]) - ord("A") + 1
-                row = int(target[1:])
+                row, column = _parse_a1_cell(target)
             else:
                 row, column = target
-            self._ensure_cell(row, column)
-            self.rows[row - 1][column - 1] = item["values"][0][0]
+            self._store(row, column, item["values"][0][0], option)  # type: ignore[arg-type]
+
+
+def _parse_a1_cell(reference: str) -> tuple[int, int]:
+    letters = "".join(char for char in reference if char.isalpha())
+    digits = "".join(char for char in reference if char.isdigit())
+    column = 0
+    for char in letters.upper():
+        column = column * 26 + (ord(char) - ord("A") + 1)
+    return int(digits), column
 
 
 class FakeSubjectSheet:

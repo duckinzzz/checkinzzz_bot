@@ -6,7 +6,7 @@ from typing import Protocol, Sequence
 
 import gspread
 from gspread.exceptions import APIError, SpreadsheetNotFound, WorksheetNotFound
-from gspread.utils import rowcol_to_a1
+from gspread.utils import ValueInputOption, rowcol_to_a1
 
 from utils.names import normalize_name
 
@@ -151,7 +151,14 @@ class GspreadSubjectSheet:
         # Колонка A занята ФИО, поэтому дата никогда не пишется в неё.
         column = max(len(header), 1) + 1
         try:
-            self._ws.update_cell(1, column, day.strftime("%d.%m.%Y"))
+            # RAW, а не USER_ENTERED: иначе Sheets разберёт "07.10.2026" как дату
+            # и будет отдавать её в формате локали таблицы, который наш парсер
+            # может не узнать. Текстом же она читается ровно такой, как записана.
+            self._ws.update(
+                [[day.strftime("%d.%m.%Y")]],
+                rowcol_to_a1(1, column),
+                value_input_option=ValueInputOption.raw,
+            )
         except APIError as exc:
             raise _translate(exc) from exc
         self._cache = None
@@ -175,6 +182,8 @@ class GspreadSubjectSheet:
             {"range": rowcol_to_a1(row, column), "values": [[MARK]]} for row, column in marks
         ]
         try:
-            self._ws.batch_update(data, value_input_option="USER_ENTERED")
+            # RAW обязательно: с USER_ENTERED Sheets принимает «+» за начало
+            # формулы и кладёт в клетку «#ERROR!» вместо отметки.
+            self._ws.batch_update(data, value_input_option=ValueInputOption.raw)
         except APIError as exc:
             raise _translate(exc) from exc
