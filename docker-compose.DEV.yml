@@ -1,8 +1,16 @@
 services:
   bot:
-    build: .
+    build:
+      context: .
+      target: dev
     command: sh -c "watchfiles --ignore-paths .venv --ignore-paths .idea 'python run.py' ."
     env_file:
       - .env
     volumes:
       - .:/app
+      - /app/.venv  # preserve built venv (bind mount would clobber it otherwise)
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "1"

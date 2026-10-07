@@ -1,15 +1,15 @@
 import asyncio
 
-from core import bot, dp, logger
-from handlers import start_router
+from core.app import bot, dp, logger
+from handlers import get_main_router
 
 
-async def announce_start():
+async def announce_start() -> None:
     logger.info("Bot started")
 
 
-async def main():
-    dp.include_router(start_router)
+async def main() -> None:
+    dp.include_router(get_main_router())
 
     await bot.delete_webhook(drop_pending_updates=True)
     await announce_start()

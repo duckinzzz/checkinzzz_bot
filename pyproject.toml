@@ -1,0 +1,13 @@
+[project]
+name = "aiogram_template"
+version = "0.1.0"
+description = "Aiogram bot template"
+requires-python = ">=3.13"
+dependencies = [
+    "aiogram==3.24.0",
+]
+
+[dependency-groups]
+dev = [
+    "watchfiles>=1.1.1",
+]

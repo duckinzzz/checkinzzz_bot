@@ -3,12 +3,12 @@ import sys
 
 from aiogram import Bot, Dispatcher
 
-from config import BOT_TOKEN
+from core.config import BOT_TOKEN
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 
 logger = logging.getLogger("bot_core")
