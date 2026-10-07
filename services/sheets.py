@@ -12,6 +12,8 @@ from utils.names import normalize_name
 
 MARK = "+"
 
+_NAME_HEADER = "фио"
+
 
 
 class SheetError(RuntimeError):
@@ -38,6 +40,13 @@ class SubjectSheet(Protocol):
     def write_marks(self, marks: Sequence[tuple[int, int]]) -> None:
         """Проставить «+» во все (row, column) одной пачкой."""
         ...
+
+
+def _header_column(header: Sequence[str], label: str) -> int | None:
+    for index, cell in enumerate(header, start=1):
+        if normalize_name(cell) == label:
+            return index
+    return None
 
 
 def _parse_header_date(cell: str, today: date) -> date | None:
@@ -120,11 +129,15 @@ class GspreadSubjectSheet:
         return self._cache
 
     def student_rows(self) -> dict[str, int]:
+        values = self._values()
+        header = values[0] if values else []
+        # Колонку с ФИО ищем по заголовку: слева от неё часто стоит служебная «№».
+        name_column = _header_column(header, _NAME_HEADER) or 1
         rows: dict[str, int] = {}
-        for index, record in enumerate(self._values(), start=1):
-            if index == 1 or not record:
+        for index, record in enumerate(values, start=1):
+            if index == 1 or len(record) < name_column:
                 continue
-            name = record[0].strip()
+            name = record[name_column - 1].strip()
             if name:
                 rows[normalize_name(name)] = index
         return rows

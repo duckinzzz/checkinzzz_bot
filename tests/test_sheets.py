@@ -25,6 +25,21 @@ def test_student_rows_on_empty_sheet():
     assert _sheet([]).student_rows() == {}
 
 
+def test_student_rows_reads_names_from_fio_header_column():
+    sheet = _sheet([["№", "ФИО", "07.10.2026"], ["1", "Иванов Иван", ""], ["2", "Петров Пётр", ""]])
+    assert sheet.student_rows() == {"иванов иван": 2, "петров петр": 3}
+
+
+def test_student_rows_finds_fio_header_case_insensitively():
+    sheet = _sheet([["№", " фио "], ["1", "Иванов Иван"]])
+    assert sheet.student_rows() == {"иванов иван": 2}
+
+
+def test_ensure_date_column_starts_after_number_and_name_columns():
+    sheet = _sheet([["№", "ФИО"], ["1", "Иванов Иван"]])
+    assert sheet.ensure_date_column(TODAY) == 3
+
+
 def test_ensure_date_column_finds_existing():
     sheet = _sheet([["ФИО", "07.10.2026", "09.10.2026"], ["Иванов Иван", "", ""]])
     assert sheet.ensure_date_column(TODAY) == 2
