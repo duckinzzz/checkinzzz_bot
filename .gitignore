@@ -5,4 +5,11 @@ __pycache__/
 *.env
 *.log
 
+# секреты и рантайм-состояние
+credentials.json
+data/state.json
+
+# scratch-каталог SDD
+.superpowers/
+
 # uv.lock коммитится — не добавлять его сюда

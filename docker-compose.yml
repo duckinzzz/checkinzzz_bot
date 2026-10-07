@@ -6,6 +6,9 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    volumes:
+      - ./credentials.json:/app/credentials.json:ro
+      - ./data:/app/data
     stop_grace_period: 1m
     logging:
       driver: "json-file"
