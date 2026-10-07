@@ -114,7 +114,7 @@ class FakeBot:
         return SimpleNamespace(message_id=message_id)
 
 
-class TestSleeper:
+class ManualSleeper:
     """Замена asyncio.sleep для тестов: короткие паузы пропускает, длинную держит.
 
     flush_delay в тестах нулевой — он должен срабатывать сразу. Пауза до конца

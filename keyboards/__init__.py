@@ -1,3 +1,3 @@
-from .base import main_kb
+from .attendance import CHECKIN_CALLBACK_PREFIX, checkin_kb
 
-__all__ = ["main_kb"]
+__all__ = ["CHECKIN_CALLBACK_PREFIX", "checkin_kb"]
