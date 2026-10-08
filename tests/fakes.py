@@ -140,9 +140,12 @@ class FakeSubjectSheet:
 class FakeBot:
     """Подделка aiogram.Bot: запоминает отправленные и отредактированные сообщения."""
 
+    id = 8398029396
+
     def __init__(self) -> None:
         self.sent: list[dict] = []
         self.edited: list[dict] = []
+        self.answers: list[dict] = []
         self.fail_send = False
 
     async def send_message(self, chat_id: int, text: str, **kwargs: object):
@@ -156,6 +159,33 @@ class FakeBot:
             {"chat_id": chat_id, "message_id": message_id, "text": text, "kwargs": kwargs}
         )
         return SimpleNamespace(message_id=message_id)
+
+    async def answer_callback_query(
+        self, callback_query_id: str, text: str | None = None, show_alert: bool | None = None, **kwargs: object
+    ):
+        self.answers.append({"id": callback_query_id, "text": text, "show_alert": show_alert})
+        return True
+
+    async def __call__(self, method: object):
+        """aiogram отправляет запросы как await bot(method)."""
+        from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
+
+        if isinstance(method, SendMessage):
+            return await self.send_message(
+                method.chat_id, method.text, reply_markup=method.reply_markup
+            )
+        if isinstance(method, EditMessageText):
+            return await self.edit_message_text(
+                method.text,
+                method.chat_id,
+                method.message_id,
+                reply_markup=method.reply_markup,
+            )
+        if isinstance(method, AnswerCallbackQuery):
+            return await self.answer_callback_query(
+                method.callback_query_id, method.text, method.show_alert
+            )
+        raise AssertionError(f"FakeBot не умеет метод {type(method).__name__}")
 
 
 class ManualSleeper:

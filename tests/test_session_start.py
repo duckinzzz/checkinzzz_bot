@@ -28,6 +28,7 @@ def build(
     now: datetime = datetime(2026, 10, 7, 12, 30, tzinfo=MSK),
     sheet: FakeSubjectSheet | None = None,
     sleeper: ManualSleeper | None = None,
+    subjects: Subjects | None = None,
 ) -> tuple[CheckinSession, FakeBot, FakeSubjectSheet, StateStore]:
     bot = FakeBot()
     active_sheet = sheet or FakeSubjectSheet(students=STUDENTS)
@@ -37,7 +38,7 @@ def build(
         chat_id=-100,
         pair_end_times=tuple(ENDS),
         directory=StudentDirectory({111: "Иванов Иван", 222: "Петров Пётр"}),
-        subjects=Subjects({"Матан": "Матан"}),
+        subjects=subjects or Subjects({"Матан": "Матан"}),
         open_sheet=lambda worksheet: active_sheet,
         store=store,
         clock=Clock(now),

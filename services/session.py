@@ -44,6 +44,17 @@ def format_pair_message(subject: str, pair: CurrentPair) -> str:
     )
 
 
+@dataclass(frozen=True)
+class StartPreview:
+    """Что бот покажет админу до запуска пары."""
+
+    subject: str
+    pair_number: int
+    end_at: datetime
+    active_subject: str | None
+    active_end_at: datetime | None
+
+
 def _closed_message(active: "_Active") -> str:
     total = len(active.rows)
     marked = len(set(active.marked_rows.values()) | active.sheet_marked_rows)
@@ -146,6 +157,24 @@ class CheckinSession:
         if self._active is None:
             return 0
         return len(set(self._active.marked_rows.values()) | self._active.sheet_marked_rows)
+
+    def preview(self, subject_title: str) -> "StartPreview | StartResult":
+        """Что будет, если запустить эту пару. StartResult — если запустить нельзя."""
+        if self._subjects.worksheet_of(subject_title) is None:
+            return StartResult.UNKNOWN_SUBJECT
+
+        pair = current_pair(self._clock(), self._pair_end_times)
+        if pair is None:
+            return StartResult.DAY_OVER
+
+        active = self._active
+        return StartPreview(
+            subject=subject_title,
+            pair_number=pair.number,
+            end_at=pair.end_at,
+            active_subject=active.subject if active is not None else None,
+            active_end_at=active.end_at if active is not None else None,
+        )
 
     async def start(self, subject_title: str) -> StartResult:
         worksheet = self._subjects.worksheet_of(subject_title)
