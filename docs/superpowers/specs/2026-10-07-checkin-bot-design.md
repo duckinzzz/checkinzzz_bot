@@ -65,7 +65,7 @@ keyboards/attendance.py  кнопка отметки
 | `PAIR_END_TIMES` | да | `10:05,11:40,13:15,14:50` | времена концов пар по порядку |
 | `SPREADSHEET_ID` | да | `1AbC…` | id таблицы посещаемости |
 | `GOOGLE_CREDENTIALS_PATH` | да | `credentials.json` | путь к JSON-ключу SA |
-| `TZ` | нет | `Europe/Moscow` | таймзона, по умолчанию `Europe/Moscow` |
+| `TZ` | нет | `Asia/Vladivostok` | таймзона учебного заведения, по умолчанию `Asia/Vladivostok` |
 | `STUDENTS_PATH` | нет | `data/students.json` | справочник студентов |
 | `SUBJECTS_PATH` | нет | `data/subjects.json` | справочник предметов |
 | `STATE_PATH` | нет | `data/state.json` | файл рантайм-состояния |
