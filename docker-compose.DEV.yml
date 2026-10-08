@@ -3,7 +3,11 @@ services:
     build:
       context: .
       target: dev
-    command: sh -c "watchfiles --ignore-paths .venv --ignore-paths .idea 'python run.py' ."
+    # ВАЖНО: --ignore-paths задаётся ОДНИМ флагом через запятую. Повторять флаг
+    # нельзя: у него нет action=append, argparse оставит только последнее значение.
+    # data/ в списке обязательно: бот пишет туда state.json на каждой отметке,
+    # и без этого хот-релоад перезапускал бы его посреди пары.
+    command: sh -c "watchfiles --ignore-paths '.venv,.idea,data,.pytest_cache' 'python run.py' ."
     env_file:
       - .env
     volumes:

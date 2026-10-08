@@ -5,3 +5,6 @@
 *.pyc
 *.log
 .env
+credentials.json
+data/state.json
+.superpowers/
