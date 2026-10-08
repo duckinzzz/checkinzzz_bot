@@ -26,6 +26,7 @@ class StartResult(Enum):
     DAY_OVER = "day_over"
     UNKNOWN_SUBJECT = "unknown_subject"
     SHEET_ERROR = "sheet_error"
+    SEND_ERROR = "send_error"
 
 
 class CheckinResult(Enum):
@@ -174,11 +175,19 @@ class CheckinSession:
                 return StartResult.SHEET_ERROR
 
             token = uuid4().hex[:12]
-            message = await self._bot.send_message(
-                self._chat_id,
-                format_pair_message(subject_title, pair),
-                reply_markup=checkin_kb(token),
-            )
+            try:
+                message = await self._bot.send_message(
+                    self._chat_id,
+                    format_pair_message(subject_title, pair),
+                    reply_markup=checkin_kb(token),
+                )
+            except Exception as exc:
+                logger.exception("Не удалось отправить сообщение в беседу %s", self._chat_id)
+                await self._report(
+                    f"⚠️ Не смог отправить сообщение о паре «{subject_title}» в беседу "
+                    f"{self._chat_id}: {exc}. Проверь, что бот добавлен в эту беседу."
+                )
+                return StartResult.SEND_ERROR
 
             self._active = _Active(
                 token=token,

@@ -112,6 +112,23 @@ async def test_start_reports_sheet_error(tmp_path: Path):
     assert store.load() is None
 
 
+async def test_start_reports_send_failure(tmp_path: Path):
+    reports: list[str] = []
+
+    async def report(text: str) -> None:
+        reports.append(text)
+
+    session, bot, _, store = build(tmp_path)
+    session._report_hook = report
+    bot.fail_send = True
+
+    assert await session.start("Матан") is StartResult.SEND_ERROR
+    assert session.active_subject is None
+    assert store.load() is None
+    assert reports, "админ должен узнать, что сообщение не ушло"
+    assert "бесед" in reports[0].lower()
+
+
 async def test_close_edits_message_and_clears_state(tmp_path: Path):
     session, bot, _, store = build(tmp_path)
     await session.start("Матан")

@@ -12,6 +12,7 @@ START_REPLIES: dict[StartResult, str] = {
     StartResult.DAY_OVER: "Пары на сегодня закончились.",
     StartResult.UNKNOWN_SUBJECT: "Такого предмета нет в справочнике.",
     StartResult.SHEET_ERROR: "Не смог открыть вкладку в таблице, подробности выше.",
+    StartResult.SEND_ERROR: "Не смог отправить сообщение в беседу — проверь, что бот в ней.",
 }
 
 
